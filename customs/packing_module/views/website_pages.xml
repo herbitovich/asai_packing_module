@@ -1,0 +1,378 @@
+<odoo>
+    <record id="action_packing_orders_page" model="ir.actions.act_url">
+        <field name="name">Упаковка заказов</field>
+        <field name="url">/packing/orders</field>
+        <field name="target">self</field>
+    </record>
+
+    <record id="action_defective_orders_page" model="ir.actions.act_url">
+        <field name="name">Бракованные заказы</field>
+        <field name="url">/packing/defective_orders</field>
+        <field name="target">self</field>
+    </record>
+
+    <record id="action_analytics_page" model="ir.actions.act_url">
+        <field name="name">Аналитика операторов</field>
+        <field name="url">/packing/analytics</field>
+        <field name="target">self</field>
+    </record>
+
+    <menuitem id="menu_packing_root" name="Packing" sequence="10"/>
+
+    <menuitem id="menu_packing_orders" name="Packing Orders"
+              parent="menu_packing_root" action="action_packing_orders_page" sequence="10"/>
+
+    <menuitem id="menu_defective_orders" name="Defective Orders"
+              parent="menu_packing_root" action="action_defective_orders_page" sequence="20"/>
+
+    <menuitem id="menu_packing_analytics" name="Analytics"
+              parent="menu_packing_root" action="action_analytics_page" sequence="30"/>
+
+    <template id="packing_orders_page" name="Packing Orders">
+        <t t-call="website.layout">
+            <div class="container">
+                <h1>Упаковка заказов</h1>
+                
+                <form t-attf-action="/packing/upload_csv" method="post" enctype="multipart/form-data">
+                    <div class="form-group">
+                        <input type="hidden" name="csrf_token" t-att-value="request.csrf_token()"/>
+                        <label for="csv_file">Загрузить производственное задание (CSV):</label>
+                        <input type="file" name="csv_file" accept=".csv" required="true"/>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Добавить заказы</button>
+                </form>
+                
+                <t t-if="error">
+                    <div class="alert alert-danger">
+                        <t t-if="error == 'no_file'">Выберите файл для загрузки.</t>
+                        <t t-if="error == 'parse_error'">Ошибка обработки CSV файла. Проверьте формат.</t>
+                    </div>
+                </t>
+                
+                <div class="orders-list mt-4">
+                    <h2>Текущие заказы</h2>
+                    <t t-foreach="orders" t-as="order">
+                        <div class="order card mb-3">
+                            <div class="card-body">
+                                <h3 class="card-title">
+                                    <a t-att-href="'/packing/order/' + str(order.id)">Заказ #<span t-esc="order.name"/></a>
+                                </h3>
+                                <p class="card-text">
+                                    Статус: <span t-esc="order.state"/>
+                                    <t t-if="order.operator_id">Оператор: <span t-esc="order.operator_id.name"/></t>
+                                </p>
+                            </div>
+                        </div>
+                    </t>
+                </div>
+            </div>
+        </t>
+    </template>
+
+    <template id="packing_order_page" name="Packing Order">
+        <t t-call="website.layout">
+            <div class="container">
+                <h1>Заказ: <t t-esc="order.name"/></h1>
+                
+                <div class="operator-input mb-3">
+                    <label for="operator_id">ID Оператора:</label>
+                    <input type="text" id="operator_id" class="form-control" placeholder="ID"/>
+                    <button class="btn btn-secondary mt-2" id="set_operator_btn">Установить оператора</button>
+                </div>
+                
+                <div class="quick-pack-section mb-4">
+                    <h3>Быстрая упаковка по ID детали</h3>
+                    <div class="input-group">
+                        <input type="text" id="quick_pack_input" class="form-control" placeholder="Введите ID детали"/>
+                        <button class="btn btn-info" id="quick_pack_btn">Упаковать</button>
+                    </div>
+                    <div id="quick_pack_result" class="mt-2"></div>
+                </div>
+                
+                <div class="details-list">
+                    <h2>Детали</h2>
+                    <t t-foreach="details" t-as="detail">
+                        <div class="detail card mb-3">
+                            <div class="card-body">
+                                <h3 class="card-title" t-esc="detail.name"/>
+                                <p class="card-text">
+                                    ID Детали: <span t-esc="detail.detail_id"/><br/>
+                                    Количество: <span t-esc="detail.quantity"/><br/>
+                                    Упаковано: <span t-esc="detail.packed_quantity"/> / <span t-esc="detail.quantity"/><br/>
+                                    Брак: <span t-esc="detail.defective_quantity"/><br/>
+                                    Габариты: <span t-esc="detail.size_measurements"/>
+                                </p>
+                                
+                                <button class="btn btn-primary mr-2 pack-detail-btn" t-att-data-detail-id="detail.id">
+                                    Пометить как упакованную
+                                </button>
+                                
+                                <div class="defective-input mt-2">
+                                    <label t-att-for="'defective_' + str(detail.id)">Количество брака:</label>
+                                    <input type="number" t-att-id="'defective_' + str(detail.id)" 
+                                           class="form-control" min="0" t-att-max="detail.quantity - detail.packed_quantity"/>
+                                    <button class="btn btn-warning mt-2 mark-defective-btn" t-att-data-detail-id="detail.id">
+                                        Пометить брак
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </t>
+                </div>
+                
+                <button class="btn btn-danger mt-3" id="reset_order_btn">Сбросить заказ</button>
+                
+                <t t-if="order.state == 'done'">
+                    <div class="shipping-label mt-3">
+                        <a t-att-href="'/web/content/packing.order/%s/shipping_label' % order.id" 
+                           class="btn btn-success" target="_blank">
+                            Транспортная карта
+                        </a>
+                    </div>
+                </t>
+            </div>
+            
+            <script>
+                document.addEventListener('DOMContentLoaded', function() {
+                    document.querySelectorAll('.pack-detail-btn').forEach(function(btn) {
+                        btn.addEventListener('click', function() {
+                            var detailId = this.getAttribute('data-detail-id');
+                            packDetail(detailId);
+                        });
+                    });
+                    
+                    document.querySelectorAll('.mark-defective-btn').forEach(function(btn) {
+                        btn.addEventListener('click', function() {
+                            var detailId = this.getAttribute('data-detail-id');
+                            var input = document.getElementById('defective_' + detailId);
+                            var quantity = input.value;
+                            markDefective(detailId, quantity);
+                        });
+                    });
+                    
+                    document.getElementById('reset_order_btn').addEventListener('click', function() {
+                        var orderId = <t t-esc="order.id"/>;
+                        resetOrder(orderId);
+                    });
+                    
+                    document.getElementById('set_operator_btn').addEventListener('click', function() {
+                        var orderId = <t t-esc="order.id"/>;
+                        var operatorId = document.getElementById('operator_id').value;
+                        setOperator(orderId, operatorId);
+                    });
+                
+                    document.getElementById('quick_pack_btn').addEventListener('click', function() {
+                        var detailCode = document.getElementById('quick_pack_input').value;
+                        var orderId = <t t-esc="order.id"/>;
+                        if (detailCode) {
+                            quickPackDetail(detailCode, orderId);
+                        } else {
+                            document.getElementById('quick_pack_result').innerHTML = 
+                                '<div class="alert alert-warning">Введите ID детали</div>';
+                        }
+                    });
+                });
+                function packDetail(detailId) {
+                    fetch('/packing/pack_detail', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRF-TOKEN': getCSRFToken()
+                        },
+                        body: JSON.stringify({
+                            detail_id: detailId
+                        })
+                    }).then(response => response.json())
+                    .then(data => {
+                        location.reload();
+                    });
+                }
+                
+                function quickPackDetail(detailCode, orderId) {
+                    fetch('/packing/quick_pack_detail', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRF-TOKEN': getCSRFToken()
+                        },
+                        body: JSON.stringify({
+                            detail_code: detailCode,
+                            order_id: orderId
+                        })
+                    }).then(response => response.json())
+                    .then(data => {
+                        const resultDiv = document.getElementById('quick_pack_result');
+                        if (data.error) {
+                            resultDiv.innerHTML = '<div class="alert alert-danger">' + data.error + '</div>';
+                        } else {
+                            if (data.order_completed) {
+                                setTimeout(function() {
+                                    alert('Заказ завершен! Транспортная карта сгенерирована.');
+                                    location.reload();
+                                }, 1000);
+                            } else {
+                                setTimeout(function() {
+                                    location.reload();
+                                }, 1500);
+                            }
+                        }
+                    });
+                }
+                
+                function markDefective(detailId, quantity) {
+                    if (quantity > 0) {
+                        fetch('/packing/mark_defective', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-CSRF-TOKEN': getCSRFToken()
+                            },
+                            body: JSON.stringify({
+                                detail_id: detailId,
+                                quantity: quantity
+                            })
+                        }).then(response => response.json())
+                        .then(data => {
+                            location.reload();
+                        });
+                    }
+                }
+                
+                function resetOrder(orderId) {
+                    fetch('/packing/reset_order', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRF-TOKEN': getCSRFToken()
+                        },
+                        body: JSON.stringify({
+                            order_id: orderId
+                        })
+                    }).then(response => response.json())
+                    .then(data => {
+                        location.reload();
+                    });
+                }
+                
+                function setOperator(orderId, operatorId) {
+                    if (operatorId) {
+                        fetch('/packing/set_operator', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-CSRF-TOKEN': getCSRFToken()
+                            },
+                            body: JSON.stringify({
+                                order_id: orderId,
+                                operator_id: operatorId
+                            })
+                        }).then(response => response.json())
+                        .then(data => {
+                            alert('Оператор установлен!');
+                        });
+                    }
+                }
+                
+                function getCSRFToken() {
+                    var csrfToken = document.querySelector('meta[name="csrf_token"]');
+                    return csrfToken ? csrfToken.getAttribute('content') : '';
+                }
+            </script>
+        </t>
+    </template>
+
+    <template id="defective_orders_page" name="Defective Orders">
+        <t t-call="website.layout">
+            <div class="container">
+                <h1>Бракованные заказы</h1>
+                <t t-foreach="defective_orders" t-as="order">
+                    <div class="order card mb-3">
+                        <div class="card-body">
+                            <h2 class="card-title"> Заказ #<span t-esc="order.name"/></h2>
+                            <t t-foreach="order.details_ids" t-as="detail">
+                                <t t-if="detail.defective_quantity > 0">
+                                    <div class="detail card mt-2">
+                                        <div class="card-body">
+                                            <h3 class="card-title" t-esc="detail.name"/>
+                                            <p class="card-text">
+                                                Количество брака: <span t-esc="detail.defective_quantity"/><br/>
+                                                ID Детали: <span t-esc="detail.detail_id"/>
+                                            </p>
+                                            <button class="btn btn-success mark-replaced-btn" t-att-data-detail-id="detail.id">
+                                                Пометить как замененную
+                                            </button>
+                                        </div>
+                                    </div>
+                                </t>
+                            </t>
+                        </div>
+                    </div>
+                </t>
+            </div>
+            
+            <script>
+                document.addEventListener('DOMContentLoaded', function() {
+                    document.querySelectorAll('.mark-replaced-btn').forEach(function(btn) {
+                        btn.addEventListener('click', function() {
+                            var detailId = this.getAttribute('data-detail-id');
+                            markReplaced(detailId);
+                        });
+                    });
+                });
+                
+                function markReplaced(detailId) {
+                    fetch('/packing/mark_replaced', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRF-TOKEN': getCSRFToken()
+                        },
+                        body: JSON.stringify({
+                            detail_id: detailId
+                        })
+                    }).then(response => response.json())
+                    .then(data => {
+                        location.reload();
+                    });
+                }
+                
+                function getCSRFToken() {
+                    var csrfToken = document.querySelector('meta[name="csrf_token"]');
+                    return csrfToken ? csrfToken.getAttribute('content') : '';
+                }
+            </script>
+        </t>
+    </template>
+
+    <template id="analytics_page" name="Analytics">
+        <t t-call="website.layout">
+            <div class="container">
+                <h1>Аналитика</h1>
+                <table class="table table-striped">
+                    <thead>
+                        <tr>
+                            <th>Оператор</th>
+                            <th>Дата</th>
+                            <th>Всего заказов</th>
+                            <th>Всего деталей</th>
+                            <th>Бракованные детали</th>
+                            <th>Бракованные заказы</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <t t-foreach="analytics" t-as="analytic">
+                            <tr>
+                                <td t-esc="analytic.operator_id.name"/>
+                                <td t-esc="analytic.date"/>
+                                <td t-esc="analytic.total_orders"/>
+                                <td t-esc="analytic.total_details"/>
+                                <td t-esc="analytic.defective_details"/>
+                                <td t-esc="analytic.defective_orders"/>
+                            </tr>
+                        </t>
+                    </tbody>
+                </table>
+            </div>
+        </t>
+    </template>
+</odoo>

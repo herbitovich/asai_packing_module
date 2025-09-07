@@ -1,0 +1,5 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_packing_order_user,access.packing.order.user,model_packing_order,base.group_user,1,1,1,1
+access_packing_detail_user,access.packing.detail.user,model_packing_detail,base.group_user,1,1,1,1
+access_packing_analytics_user,access.packing.analytics.user,model_packing_analytics,base.group_user,1,1,1,1
+access_defective_detail_user,access.defective.detail.user,model_defective_detail,base.group_user,1,1,1,1
